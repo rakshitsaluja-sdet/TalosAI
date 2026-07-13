@@ -80,7 +80,11 @@ __pycache__/
 **/Debug/
 **/Release/
 **/.vs/
-**/.vscode/
+# .vscode/ contents are ignored except mcp.json, which is meant to be shared
+# with the team (git can't negate a file inside a fully-excluded directory,
+# so the directory itself must not be excluded — only its contents).
+.vscode/*
+!.vscode/mcp.json
 **/packages/
 
 # ============================================

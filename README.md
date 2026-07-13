@@ -73,14 +73,21 @@ Feature areas in `TalosAI/automation/Features/`:
 
 ## Running the MCP tool layer
 
+Fastest path — the standalone Agent UI:
+
 ```powershell
-# Requires GITHUB_TOKEN (for the agent's LLM calls) or -UseOllama for offline mode
-.\start_all.ps1
+cd agent
+.\start_ui.ps1   # auto-starts MCPBridge if needed, opens http://localhost:8080
 ```
 
-This starts MCPBridge (`http://localhost:5555`), the Python MCP server, and
-the agent runner together, and health-checks MCPBridge before continuing.
-To run components individually:
+Or drive it from GitHub Copilot Chat directly in VS Code (Agent mode) —
+`.vscode/mcp.json` already registers the MCP servers. Both paths, plus the
+full story-to-test demo flow and ready-to-paste prompts for every tool
+category, are documented step by step in
+**[docs/SHOWCASE-GUIDE.md](docs/SHOWCASE-GUIDE.md)** — start there if you're
+presenting this or just want the fastest route to "it's working."
+
+To run each service individually:
 
 ```powershell
 cd MCPBridge && dotnet run              # http://localhost:5555
@@ -89,8 +96,15 @@ cd playwright-mcp && npm install && node server.js                     # Streama
 cd agent && pip install -r requirements.txt && python agent_web_server.py
 ```
 
+`start_all.ps1` starts MCPBridge + the Python MCP server + the agent runner
+together as background jobs — useful if you want everything up for both
+Copilot and the Agent UI at once, but not required for either individually.
+
 ## Repository layout
 
+- `docs/SHOWCASE-GUIDE.md` — full demo runbook (setup, both agent entry points, the story-to-test showcase script)
+- `agent/prompts/` — ready-to-paste prompts: every tool individually, cross-category combinations, and the full story-to-test flow
+- `examples/industry-samples/` — illustrative (non-executable) Gherkin templates showing the framework's conventions applied to BFSI, logistics, mobility, insurance, e-commerce, and healthcare
 - `.github/agents/` — Copilot agent persona prompts (regression, API testing, self-healing, etc.)
 - `.github/workflows/test-automation.yml` — CI: builds and runs the suite on `windows-latest`
 - `.editorconfig` — shared C#/Python/JS style rules

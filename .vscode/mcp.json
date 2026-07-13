@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "talosai-mcpbridge": {
+      "type": "sse",
+      "url": "http://localhost:8765/sse"
+    },
+    "talosai-playwright": {
+      "type": "http",
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
