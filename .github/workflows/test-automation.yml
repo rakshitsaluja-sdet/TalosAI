@@ -1,0 +1,195 @@
+name: Run Test Automation
+
+on:
+  push:
+    branches: [ main ]  # change if your default branch is different
+    tags:
+      - 'v*'  # Trigger on version tags for releases
+  workflow_dispatch:
+    inputs:
+      test_filter:
+        description: 'Test filter (e.g., Category=login, Tag=smoke-ui, Tag=playwright)'
+        required: false
+        default: 'Category=login'
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Locate TalosAI.csproj
+        id: locate
+        run: |
+          $proj = Get-ChildItem -Recurse -Filter "TalosAI.csproj" | Select-Object -First 1
+          if (-not $proj) {
+            Write-Error "Could not find TalosAI.csproj anywhere in the repo."
+            exit 1
+          }
+          Write-Host "Found project at: $($proj.FullName)"
+          "TALOSAI_ABS=$($proj.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # Save repo-relative path with forward slashes for dotnet CLI
+          $root = (Resolve-Path .).Path
+          $rel = $proj.FullName.Substring($root.Length).TrimStart('\','/')
+          $rel = $rel -replace '\\','/'
+          "TALOSAI_REL=$rel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Restore
+        run: dotnet restore "$env:TALOSAI_REL"
+
+      # config.template.properties already points at the public demo targets
+      # (saucedemo.com, reqres.in) — no secrets needed for CI, so it's used as-is.
+      - name: Generate config.properties from template
+        run: |
+          $projectDir = Split-Path $env:TALOSAI_ABS
+          $configDir = Join-Path $projectDir "automation"
+          $templatePath = Join-Path $configDir "config.template.properties"
+          $configPath = Join-Path $configDir "config.properties"
+
+          if (Test-Path $templatePath) {
+            Copy-Item $templatePath $configPath -Force
+            "" | Out-File -FilePath $configPath -Encoding utf8 -Append
+            "# -- PIPELINE OVERRIDES -----------------------------" | Out-File -FilePath $configPath -Encoding utf8 -Append
+            "Headless=true" | Out-File -FilePath $configPath -Encoding utf8 -Append
+            Write-Host "Config properties generated from template"
+          } else {
+            Write-Host "config.template.properties not found — framework will use hardcoded defaults"
+          }
+
+      - name: Build
+        run: dotnet build "$env:TALOSAI_REL" --configuration Release --no-restore
+
+      # Install Playwright browsers (required for @playwright tagged scenarios)
+      - name: Install Playwright Browsers
+        run: |
+          $projectDir = Split-Path $env:TALOSAI_ABS
+          $playwrightScript = Join-Path $projectDir "bin\Release\net9.0\playwright.ps1"
+
+          if (Test-Path $playwrightScript) {
+            Write-Host "Installing Playwright browsers..."
+            pwsh $playwrightScript install chromium
+            pwsh $playwrightScript install webkit
+          } else {
+            Write-Host "Playwright script not found at: $playwrightScript (skipping)"
+          }
+
+      # Run tests and emit TRX into .\test-results, keep job alive for artifact upload
+      - name: Test
+        continue-on-error: true
+        run: |
+          mkdir -Force ".\test-results" | Out-Null
+          mkdir -Force ".\test-results\screenshots" | Out-Null
+
+          $filter = "${{ github.event.inputs.test_filter }}"
+          if ([string]::IsNullOrEmpty($filter)) {
+            $filter = "Category=login"
+          }
+          Write-Host "Running tests with filter: $filter"
+
+          dotnet test "$env:TALOSAI_REL" `
+            --configuration Release `
+            --logger "trx;LogFileName=testresults.trx" `
+            --results-directory ".\test-results" `
+            --no-build `
+            --filter "$filter"
+
+      # Collect Selenium and Playwright screenshots
+      - name: Collect screenshots for upload
+        if: always()
+        run: |
+          $dest = ".\artifacts\screenshots"
+          mkdir -Force $dest | Out-Null
+
+          $shots = Get-ChildItem -Path . -Recurse -File -Filter *.png -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'test-results[\\/]+screenshots' }
+          $playwrightShots = Get-ChildItem -Path . -Recurse -File -Filter *.png -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'playwright-failures' }
+
+          $allShots = @($shots) + @($playwrightShots)
+
+          if ($allShots.Count -eq 0) {
+            Write-Host "No screenshots found."
+          } else {
+            $i = 0
+            foreach ($s in $allShots) {
+              $name = $s.Name
+              $target = Join-Path $dest $name
+              if (Test-Path $target) {
+                $i++
+                $base = [System.IO.Path]::GetFileNameWithoutExtension($name)
+                $ext  = [System.IO.Path]::GetExtension($name)
+                $target = Join-Path $dest "$($i)_$base$ext"
+              }
+              Copy-Item $s.FullName $target -Force
+            }
+            Write-Host "Total screenshots collected: $($allShots.Count)"
+          }
+
+      # Collect Extent Reports for upload
+      - name: Collect Extent Reports
+        if: always()
+        run: |
+          $projectDir = Split-Path $env:TALOSAI_ABS
+          $reportRoot = Join-Path $projectDir "TestReports\ExtentReports"
+
+          if (Test-Path $reportRoot) {
+            $latestRun = Get-ChildItem $reportRoot -Directory -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match '^Run_' } |
+              Sort-Object CreationTime -Descending |
+              Select-Object -First 1
+
+            if ($latestRun) {
+              $dest = ".\artifacts\extent-reports"
+              mkdir -Force $dest | Out-Null
+              Copy-Item -Recurse $latestRun.FullName "$dest\ExtentReport" -Force
+              Write-Host "Extent Report collected from: $($latestRun.FullName)"
+            } else {
+              Write-Host "No Extent Report runs found in $reportRoot"
+            }
+          } else {
+            Write-Host "Extent Reports directory not found (OK if tests haven't generated reports yet)"
+          }
+
+      # Upload failure screenshots
+      - name: Upload failure screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selenium-screenshots
+          path: artifacts/screenshots/*.png
+          if-no-files-found: warn
+          retention-days: 7
+
+      # Upload TRX results
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults
+          path: |
+            **/test-results/*.trx
+            **/TestResults/**/*.trx
+            **/*.trx
+          if-no-files-found: warn
+          retention-days: 7
+
+      # Upload Extent Reports (HTML reports with detailed test information)
+      - name: Upload Extent Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extent-reports
+          path: artifacts/extent-reports/**/*
+          if-no-files-found: warn
+          retention-days: 30

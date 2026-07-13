@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="TalosAI/TalosAI.csproj" />
+  <Project Path="MCPBridge/MCPBridge.csproj" Id="4f865d1d-d599-4cfd-be67-e555c16c1af4" />
+</Solution>

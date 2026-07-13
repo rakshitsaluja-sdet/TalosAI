@@ -1,0 +1,23 @@
+@MCPBridge_HostAddress = http://localhost:5555
+
+GET {{MCPBridge_HostAddress}}/health
+Accept: application/json
+
+###
+
+GET {{MCPBridge_HostAddress}}/tools
+Accept: application/json
+
+###
+
+POST {{MCPBridge_HostAddress}}/execute
+Content-Type: application/json
+
+{
+  "toolName": "navigate_to",
+  "arguments": {
+    "url": "https://www.saucedemo.com"
+  }
+}
+
+###

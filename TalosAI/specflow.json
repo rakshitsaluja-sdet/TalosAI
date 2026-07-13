@@ -1,0 +1,17 @@
+{
+  "$schema": "https://specflow.org/specflow-config.json",
+  "language": {
+    "feature": "en-US"
+  },
+  "bindingCulture": {
+    "name": "en-US"
+  },
+  "plugins": [
+    { "name": "SpecFlow.Plus.LivingDocPlugin", "type": "Runtime" }
+  ],
+  "stepAssemblies": [],
+  "trace": {
+    "traceSuccessfulSteps": true,
+    "minTracedDuration": "0:0:0.2"
+  }
+}

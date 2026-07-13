@@ -1,0 +1,113 @@
+# TalosAI Test Automation - Git Ignore
+
+# ============================================
+# SENSITIVE FILES - NEVER COMMIT THESE
+# ============================================
+# Configuration file with real credentials
+**/config.properties
+
+# Azure credentials
+**/azure.credentials
+
+# Local secrets
+**/*.secrets
+**/*.local.json
+
+# ============================================
+# Test Results & Reports
+# ============================================
+**/TestReports/
+**/TestResults/
+**/test-results/
+**/playwright-failures/
+**/playwright-videos/
+**/playwright-screenshots/
+**/allure-results/
+**/allure-report/
+**/Screenshots/
+**/*.png
+**/*.jpg
+
+# =====================================
+# AI Agent runtime artifacts (DO NOT COMMIT)
+# =====================================
+.agent_runtime/
+**/.agent_runtime/
+
+
+# =====================================
+# Visual Studio / IDE local files
+# =====================================
+.vs/
+**/.vs/
+
+# ===============================
+# Extent Reports (runtime output)
+# ===============================
+TestReports/
+**/TestReports/
+ExtentReports/
+**/ExtentReports/
+
+# ===============================
+# Playwright / Node runtime
+node_modules/
+.playwright/
+
+# ===============================
+# Python runtime artifacts
+# ===============================
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# ===============================
+# Local SQLite test data (regenerated at runtime)
+# ===============================
+**/TestData/*.db
+
+
+# ============================================
+# Build Artifacts
+# ============================================
+**/bin/
+**/obj/
+**/Debug/
+**/Release/
+**/.vs/
+**/.vscode/
+**/packages/
+
+# ============================================
+# IDE Files
+# ============================================
+**/*.user
+**/*.suo
+**/.idea/
+
+# -------------------------------------------------
+# TEMP: Ignore MCPBridge documentation files
+# (Code only will be committed for now)
+# -------------------------------------------------
+MCPBridge/**/*.md
+MCPBridge/**/*.txt
+MCPBridge/**/*.pptx
+
+# ============================================
+# OS Files
+# ============================================
+**/Thumbs.db
+**/.DS_Store
+
+# ============================================
+# Logs
+# ============================================
+**/*.log
+**/logs/
+
+# ============================================
+# Temporary Files
+# ============================================
+**/tmp/
+**/temp/
+**/*.tmp

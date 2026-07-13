@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+	<RunConfiguration>
+		<!-- VS will still put trx etc. here; Allure archive is controlled by env vars below -->
+		<ResultsDirectory>TestResults</ResultsDirectory>
+	</RunConfiguration>
+
+	<!-- Make these paths/flags easy to change without code edits -->
+	<EnvironmentVariables>
+		<!-- Where timestamped runs will be archived -->
+		<ALLURE_ARCHIVE_ROOT>C:\TestReports\Allure</ALLURE_ARCHIVE_ROOT>
+
+		<!-- true = open report automatically at the end of a run (server mode via allure open) -->
+		<ALLURE_OPEN_REPORT>true</ALLURE_OPEN_REPORT>
+	</EnvironmentVariables>
+
+	<!-- If you see file write contention while validating, start with 1 worker -->
+	<NUnit>
+		<NumberOfTestWorkers>1</NumberOfTestWorkers>
+	</NUnit>
+</RunSettings>

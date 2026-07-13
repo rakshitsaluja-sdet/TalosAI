@@ -1,0 +1,1613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Agent</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:         #0a0c10;
+  --bg2:        #0f1218;
+  --bg3:        #151a22;
+  --bg4:        #1c2330;
+  --border:     #1e2736;
+  --border2:    #2a3547;
+  --accent:     #00d4ff;
+  --accent2:    #0099cc;
+  --green:      #00e5a0;
+  --green2:     #00b87a;
+  --amber:      #ffb340;
+  --red:        #ff4d6a;
+  --purple:     #a78bfa;
+  --text:       #e2e8f0;
+  --text2:      #94a3b8;
+  --text3:      #4a5568;
+  --mono:       'JetBrains Mono', monospace;
+  --sans:       'Syne', sans-serif;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+
+/* ── Layout ── */
+.app {
+  display: grid;
+  grid-template-columns: 280px 1fr 300px;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+}
+
+/* ── Header ── */
+.header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  gap: 16px;
+  position: relative;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-mark {
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  color: #000;
+  flex-shrink: 0;
+}
+
+.logo-text {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+
+.logo-sub {
+  font-size: 11px;
+  color: var(--text3);
+  font-family: var(--mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.header-spacer { flex: 1; }
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  border: 1px solid;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.status-pill.checking {
+  border-color: var(--text3);
+  color: var(--text3);
+  background: transparent;
+}
+
+.status-pill.online {
+  border-color: var(--green2);
+  color: var(--green);
+  background: rgba(0,229,160,0.06);
+}
+
+.status-pill.offline {
+  border-color: #c0392b;
+  color: var(--red);
+  background: rgba(255,77,106,0.06);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-pill.online .status-dot {
+  animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.header-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text2);
+}
+
+.header-btn:hover { background: var(--bg4); color: var(--text); }
+
+.header-btn.danger {
+  border-color: rgba(255,77,106,0.3);
+  color: var(--red);
+}
+
+.header-btn.danger:hover {
+  background: rgba(255,77,106,0.1);
+}
+
+/* ── Left Sidebar ── */
+.sidebar {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-section {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-label {
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 10px;
+}
+
+/* State cards */
+.state-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.state-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  transition: border-color 0.2s;
+}
+
+.state-card.active {
+  border-color: var(--green2);
+  background: rgba(0,229,160,0.04);
+}
+
+.state-card.warning {
+  border-color: rgba(255,179,64,0.4);
+  background: rgba(255,179,64,0.04);
+}
+
+.state-name {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.state-value {
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text2);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.state-card.active .state-value { color: var(--green); }
+.state-card.warning .state-value { color: var(--amber); }
+
+/* Quick prompts */
+.quick-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px;
+}
+
+.quick-list::-webkit-scrollbar { width: 3px; }
+.quick-list::-webkit-scrollbar-track { background: transparent; }
+.quick-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.quick-item {
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.quick-item:hover {
+  background: var(--bg3);
+  border-color: var(--border2);
+}
+
+.quick-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.qi-browser { background: rgba(0,212,255,0.15); color: var(--accent); }
+.qi-code    { background: rgba(167,139,250,0.15); color: var(--purple); }
+.qi-test    { background: rgba(0,229,160,0.15); color: var(--green); }
+.qi-perf    { background: rgba(255,179,64,0.15); color: var(--amber); }
+.qi-ado     { background: rgba(0,120,215,0.15); color: #4da6ff; }
+.qi-report  { background: rgba(255,77,106,0.15); color: var(--red); }
+
+.quick-text {
+  font-size: 12px;
+  color: var(--text2);
+  line-height: 1.4;
+}
+
+.quick-item:hover .quick-text { color: var(--text); }
+
+/* ── Main chat area ── */
+.main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.chat-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+  scroll-behavior: smooth;
+}
+
+.chat-area::-webkit-scrollbar { width: 4px; }
+.chat-area::-webkit-scrollbar-track { background: transparent; }
+.chat-area::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* Welcome state */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  gap: 16px;
+  padding: 40px;
+}
+
+.welcome-icon {
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(167,139,250,0.2));
+  border: 1px solid rgba(0,212,255,0.2);
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+}
+
+.welcome h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.welcome p {
+  font-size: 13px;
+  color: var(--text2);
+  max-width: 400px;
+  line-height: 1.7;
+}
+
+.welcome-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-width: 480px;
+}
+
+.chip {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--mono);
+}
+
+.chip:hover {
+  border-color: var(--accent2);
+  color: var(--accent);
+  background: rgba(0,212,255,0.06);
+}
+
+/* Message bubbles */
+.message {
+  margin-bottom: 20px;
+  animation: msg-in 0.2s ease-out;
+}
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.message.user { display: flex; justify-content: flex-end; }
+.message.agent { display: flex; justify-content: flex-start; }
+.message.system { display: flex; justify-content: center; }
+
+.bubble {
+  max-width: 75%;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.message.user .bubble {
+  background: linear-gradient(135deg, #1a3a5c, #0f2a44);
+  border: 1px solid rgba(0,153,204,0.3);
+  color: var(--text);
+  border-bottom-right-radius: 4px;
+}
+
+.message.agent .bubble {
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+
+.message.system .bubble {
+  background: transparent;
+  border: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text3);
+  letter-spacing: 0.3px;
+}
+
+.bubble-header {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text3);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bubble-time {
+  margin-left: auto;
+  font-size: 10px;
+}
+
+/* Tool call inline display */
+.tool-call {
+  margin: 6px 0;
+  padding: 7px 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent2);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-call.success { border-left-color: var(--green2); }
+.tool-call.fail    { border-left-color: var(--red); }
+.tool-call.running { border-left-color: var(--amber); }
+
+.tool-name { color: var(--accent); font-weight: 500; }
+.tool-call.success .tool-name { color: var(--green); }
+.tool-call.fail    .tool-name { color: var(--red); }
+
+.tool-status {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--bg4);
+}
+
+/* Typing indicator */
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  border-bottom-left-radius: 4px;
+  width: fit-content;
+}
+
+.typing span {
+  width: 6px;
+  height: 6px;
+  background: var(--text3);
+  border-radius: 50%;
+  animation: bounce 1.2s infinite;
+}
+
+.typing span:nth-child(2) { animation-delay: 0.2s; }
+.typing span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%           { transform: translateY(-6px); opacity: 1; }
+}
+
+/* File written badge */
+.file-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: rgba(0,229,160,0.08);
+  border: 1px solid rgba(0,229,160,0.2);
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--green);
+  margin: 2px 3px 2px 0;
+  word-break: break-all;
+}
+
+/* Memory badge */
+.memory-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--purple);
+  margin-bottom: 4px;
+}
+
+/* ── Input area ── */
+.input-area {
+  padding: 16px 28px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.input-wrap {
+  display: flex;
+  gap: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 14px;
+  padding: 10px 14px;
+  transition: border-color 0.2s;
+  align-items: flex-end;
+}
+
+.input-wrap:focus-within {
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 3px rgba(0,153,204,0.08);
+}
+
+.prompt-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  resize: none;
+  min-height: 22px;
+  max-height: 120px;
+  line-height: 1.5;
+}
+
+.prompt-input::placeholder { color: var(--text3); }
+
+.send-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--accent2), #006699);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.send-btn:hover:not(:disabled) {
+  transform: scale(1.05);
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+}
+
+.send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.send-btn svg { width: 16px; height: 16px; fill: #fff; }
+
+.input-hints {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 0 4px;
+}
+
+.hint {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text3);
+}
+
+.hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--text2);
+  margin-right: 3px;
+}
+
+/* ── Right Sidebar ── */
+.right-panel {
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  flex: 1;
+  padding: 12px 8px;
+  text-align: center;
+  font-size: 11px;
+  font-family: var(--mono);
+  letter-spacing: 0.5px;
+  color: var(--text3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  text-transform: uppercase;
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab:hover:not(.active) { color: var(--text2); }
+
+.panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.panel-content::-webkit-scrollbar { width: 3px; }
+.panel-content::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* History items */
+.history-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.history-item:hover {
+  border-color: var(--border2);
+  background: var(--bg3);
+}
+
+.history-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  margin-bottom: 3px;
+}
+
+.history-goal {
+  font-size: 12px;
+  color: var(--text2);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.history-meta {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.meta-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg4);
+  color: var(--text3);
+}
+
+.meta-tag.green { color: var(--green); background: rgba(0,229,160,0.08); }
+.meta-tag.amber { color: var(--amber); background: rgba(255,179,64,0.08); }
+.meta-tag.red   { color: var(--red);   background: rgba(255,77,106,0.08); }
+
+/* Memory stats */
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.stat-row:last-child { border-bottom: none; }
+
+.stat-label { color: var(--text3); font-family: var(--mono); }
+.stat-value { color: var(--text); font-family: var(--mono); font-weight: 500; }
+.stat-value.green { color: var(--green); }
+.stat-value.accent { color: var(--accent); }
+
+/* Files list */
+.file-item {
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--green);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.file-item-time {
+  display: block;
+  color: var(--text3);
+  font-size: 9px;
+  margin-top: 2px;
+}
+
+/* Progress bar */
+.progress-bar {
+  height: 3px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent2), var(--green2));
+  border-radius: 2px;
+  animation: progress-anim 1.5s ease-in-out infinite;
+  width: 40%;
+}
+
+@keyframes progress-anim {
+  0%   { margin-left: 0%; width: 40%; }
+  50%  { margin-left: 60%; width: 40%; }
+  100% { margin-left: 0%; width: 40%; }
+}
+
+/* Notification toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 18px;
+  border-radius: 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  font-size: 13px;
+  color: var(--text);
+  z-index: 100;
+  animation: toast-in 0.25s ease-out;
+  max-width: 300px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.toast.success { border-color: var(--green2); }
+.toast.error   { border-color: var(--red); }
+
+/* Panel hidden */
+.panel-pane { display: none; }
+.panel-pane.active { display: block; }
+
+/* Scrollable code block */
+.code-block {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text2);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+/* Connection error */
+.conn-error {
+  background: rgba(255,77,106,0.08);
+  border: 1px solid rgba(255,77,106,0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--red);
+  font-family: var(--mono);
+  margin-bottom: 12px;
+}
+
+/* Responsive for smaller screens */
+@media (max-width: 1100px) {
+  .app { grid-template-columns: 240px 1fr 260px; }
+}
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: 56px 1fr auto; }
+  .sidebar, .right-panel { display: none; }
+}
+/* Creator Watermark */
+.creator-watermark {
+  position: fixed;
+  bottom: 8px;
+  right: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  opacity: 0.4;
+  pointer-events: none;
+  letter-spacing: 0.5px;
+  z-index: 1000;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── HEADER ── -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-mark">QA</div>
+      <div>
+        <div class="logo-text">QA Agent</div>
+        <div class="logo-sub">Agentic Test Automation · Created by Rakshit Saluja</div>
+      </div>
+    </div>
+
+    <div class="header-spacer"></div>
+
+    <div class="status-pill checking" id="bridgeStatus" onclick="checkHealth()" title="Click to refresh">
+      <div class="status-dot"></div>
+      <span id="bridgeText">Checking...</span>
+    </div>
+
+    <button class="header-btn" onclick="clearSession()">New Session</button>
+    <button class="header-btn danger" onclick="closeBrowser()">Close Browser</button>
+  </header>
+
+  <!-- ── LEFT SIDEBAR ── -->
+  <aside class="sidebar">
+
+    <!-- Execution state -->
+    <div class="sidebar-section">
+      <div class="sidebar-label">Execution State</div>
+      <div class="state-grid">
+        <div class="state-card" id="stateBrowser">
+          <div class="state-name">Browser</div>
+          <div class="state-value" id="stateBrowserVal">Closed</div>
+        </div>
+        <div class="state-card" id="stateApi">
+          <div class="state-name">API</div>
+          <div class="state-value" id="stateApiVal">Not set</div>
+        </div>
+        <div class="state-card" id="stateAdo">
+          <div class="state-name">ADO</div>
+          <div class="state-value" id="stateAdoVal">Not connected</div>
+        </div>
+        <div class="state-card" id="stateMemory">
+          <div class="state-name">Memory</div>
+          <div class="state-value" id="stateMemoryVal">0 entries</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick prompts -->
+    <div class="sidebar-section" style="padding-bottom:6px;">
+      <div class="sidebar-label">Quick Actions</div>
+    </div>
+
+    <div class="quick-list" id="quickList">
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-browser">&#9679;</div>
+        <div class="quick-text">Launch browser and navigate to https://google.com</div>
+      </div>
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-browser">&#9679;</div>
+        <div class="quick-text">Launch browser and navigate to https://www.saucedemo.com</div>
+      </div>
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-test">&#10003;</div>
+        <div class="quick-text">Type standard_user into input with id user-name and secret_sauce into input with id password</div>
+      </div>
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-test">&#10003;</div>
+        <div class="quick-text">Click button with id login-button and take screenshot</div>
+      </div>
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-code">&#10022;</div>
+        <div class="quick-text">Use scaffold_feature to create test suite named SaucedemoLogin</div>
+      </div>
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-perf">&#9650;</div>
+        <div class="quick-text">Configure performance test for https://jsonplaceholder.typicode.com with 30 users</div>
+      </div>
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-perf">&#9650;</div>
+        <div class="quick-text">Run load test on /posts endpoint</div>
+      </div>
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-report">&#9632;</div>
+        <div class="quick-text">Generate performance report</div>
+      </div>
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-browser">&#9679;</div>
+        <div class="quick-text">Take screenshot of current page</div>
+      </div>
+      <div class="quick-item" onclick="useQuick(this)">
+        <div class="quick-icon qi-browser">&#9679;</div>
+        <div class="quick-text">Close browser</div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── MAIN CHAT ── -->
+  <main class="main">
+    <div class="chat-area" id="chatArea">
+      <div class="welcome" id="welcomeScreen">
+        <div class="welcome-icon">&#9654;</div>
+        <h2>QA Agent</h2>
+        <p>AI-powered test automation platform. Type a goal below or pick a quick action. The agent remembers everything across prompts in this session.</p>
+        <div style="text-align:center;font-size:11px;color:var(--text3);margin-top:16px;font-family:var(--mono);opacity:0.6;">Created by Rakshit Saluja</div>
+        <div class="welcome-chips">
+          <div class="chip" onclick="setPrompt(this)">Launch browser and navigate to SauceDemo</div>
+          <div class="chip" onclick="setPrompt(this)">Generate test suite from workflow</div>
+          <div class="chip" onclick="setPrompt(this)">Run performance test</div>
+          <div class="chip" onclick="setPrompt(this)">Take screenshot</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div id="connError" class="conn-error" style="display:none;">
+        MCPBridge not reachable at <strong>http://localhost:5555</strong>. Start it with <strong>dotnet run</strong> in the MCPBridge folder, then refresh.
+      </div>
+      <div class="input-wrap">
+        <textarea
+          id="promptInput"
+          class="prompt-input"
+          placeholder="Describe your QA goal... (e.g. launch Chrome, navigate to app, validate login, generate feature file)"
+          rows="1"
+        ></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendPrompt()" title="Send (Ctrl+Enter)">
+          <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+        </button>
+      </div>
+      <div class="input-hints">
+        <span class="hint"><kbd>Ctrl</kbd><kbd>Enter</kbd> Send</span>
+        <span class="hint"><kbd>Shift</kbd><kbd>Enter</kbd> New line</span>
+        <span class="hint" id="promptCount">Prompt 1 ready</span>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── RIGHT PANEL ── -->
+  <aside class="right-panel">
+    <div class="panel-tabs">
+      <div class="tab active" onclick="switchTab('history', this)">History</div>
+      <div class="tab" onclick="switchTab('files', this)">Files</div>
+      <div class="tab" onclick="switchTab('stats', this)">Stats</div>
+    </div>
+
+    <div class="panel-content">
+      <!-- History tab -->
+      <div class="panel-pane active" id="pane-history">
+        <div id="historyList">
+          <div style="font-size:11px;color:var(--text3);font-family:var(--mono);padding:8px 0;">No prompts yet.</div>
+        </div>
+      </div>
+
+      <!-- Files tab -->
+      <div class="panel-pane" id="pane-files">
+        <div id="filesList">
+          <div style="font-size:11px;color:var(--text3);font-family:var(--mono);padding:8px 0;">No files written yet.</div>
+        </div>
+      </div>
+
+      <!-- Stats tab -->
+      <div class="panel-pane" id="pane-stats">
+        <div class="stat-row">
+          <span class="stat-label">Prompts run</span>
+          <span class="stat-value accent" id="stat-prompts">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Tools called</span>
+          <span class="stat-value" id="stat-tools">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Files written</span>
+          <span class="stat-value green" id="stat-files">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Screenshots</span>
+          <span class="stat-value" id="stat-screenshots">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Tests passed</span>
+          <span class="stat-value green" id="stat-pass">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Tests failed</span>
+          <span class="stat-value" id="stat-fail" style="color:var(--red)">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Memory entries</span>
+          <span class="stat-value" id="stat-memory">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Session duration</span>
+          <span class="stat-value" id="stat-duration">0s</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Bridge Status</span>
+          <span class="stat-value" style="color:var(--text3);font-size:10px;">via Agent Server</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════════════════
+const AGENT_URL = 'http://localhost:8080';
+const BRIDGE_URL = 'http://localhost:5555';
+
+// ════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════
+let promptCount     = 0;
+let totalTools      = 0;
+let totalFiles      = 0;
+let totalScreenshots= 0;
+let totalPass       = 0;
+let totalFail       = 0;
+let memoryEntries   = 0;
+let sessionStart    = Date.now();
+let isRunning       = false;
+let allFiles        = [];
+let sessionLog      = [];
+
+const execState = {
+  browserOpen:      false,
+  browserUrl:       '',
+  browserTitle:     '',
+  apiConfigured:    false,
+  apiBaseUrl:       '',
+  adoConfigured:    false,
+  adoOrg:           '',
+  adoProject:       '',
+  reportingStarted: false,
+  filesWritten:     [],
+  screenshotsTaken: [],
+  testsRun:         [],
+  testsPassed:      0,
+  testsFailed:      0,
+  performanceDone:  false,
+};
+
+// ════════════════════════════════════════════════════════════
+// HEALTH CHECK
+// ════════════════════════════════════════════════════════════
+async function checkHealth() {
+  const pill = document.getElementById('bridgeStatus');
+  const text = document.getElementById('bridgeText');
+  const err  = document.getElementById('connError');
+
+  pill.className = 'status-pill checking';
+  text.textContent = 'Checking...';
+
+  try {
+    const r = await fetch(`${AGENT_URL}/health`, { signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      const d = await r.json();
+      pill.className = 'status-pill online';
+      text.textContent = `Bridge online · MCPBridge`;
+      err.style.display = 'none';
+      return true;
+    }
+  } catch {}
+
+  pill.className = 'status-pill offline';
+  text.textContent = 'Bridge offline';
+  err.style.display = 'block';
+  return false;
+}
+
+// ════════════════════════════════════════════════════════════
+// SEND PROMPT - MAIN FUNCTION
+// ════════════════════════════════════════════════════════════
+async function sendPrompt() {
+  if (isRunning) return;
+
+  const input = document.getElementById('promptInput');
+  const goal  = input.value.trim();
+  if (!goal) return;
+
+  const welcome = document.getElementById('welcomeScreen');
+  if (welcome) welcome.remove();
+
+  promptCount++;
+  isRunning = true;
+
+  input.value = '';
+  autoResize(input);
+  document.getElementById('sendBtn').disabled = true;
+  document.getElementById('promptCount').textContent = `Prompt ${promptCount} running...`;
+
+  const timestamp = new Date().toLocaleTimeString();
+  addUserMessage(goal, timestamp);
+
+  const typingId = addTyping();
+
+  const sessionEntry = {
+    num:       promptCount,
+    goal:      goal,
+    timestamp: timestamp,
+    tools:     [],
+    files:     [],
+    outcome:   'running',
+    startTime: Date.now(),
+  };
+  sessionLog.push(sessionEntry);
+  updateHistoryPanel();
+
+  try {
+    await runViaAgentServer(goal, typingId, sessionEntry);
+  } catch (err) {
+    removeTyping(typingId);
+    addAgentMessage(`Connection error: ${err.message}`, [], 'error');
+    sessionEntry.outcome = 'error';
+  } finally {
+    isRunning = false;
+    document.getElementById('sendBtn').disabled = false;
+    document.getElementById('promptCount').textContent = `Prompt ${promptCount + 1} ready`;
+    updateHistoryPanel();
+    updateStats();
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// AGENT SERVER MODE - FIXED FOR DIRECT FUNCTION CALL
+// ════════════════════════════════════════════════════════════
+async function runViaAgentServer(goal, typingId, sessionEntry) {
+  try {
+    const response = await fetch(`${AGENT_URL}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ goal: goal })
+    });
+
+    const data = await response.json();
+    
+    removeTyping(typingId);
+
+    if (data.success) {
+      const text = data.result || '';
+      const toolCalls = [];
+      
+      // Extract tool executions from agent output
+      const toolPattern = /🔧 Executing (\w+)/g;
+      let match;
+      while ((match = toolPattern.exec(text)) !== null) {
+        const toolName = match[1];
+        const toolSuccess = text.includes('📊 Result from ' + toolName + ': {\'success\': True') || 
+                           text.includes('"success": true');
+        
+        toolCalls.push({
+          name: toolName,
+          success: toolSuccess,
+          args: {}
+        });
+        
+        // Update execution state based on tool
+        if (toolName === 'launch_browser' && toolSuccess) {
+          execState.browserOpen = true;
+        }
+        if (toolName === 'navigate' && toolSuccess) {
+          const urlMatch = text.match(/"url":\s*"([^"]+)"/);
+          if (urlMatch) execState.browserUrl = urlMatch[1];
+        }
+        if (toolName === 'close_browser') {
+          execState.browserOpen = false;
+          execState.browserUrl = '';
+        }
+        if (toolName === 'configure_api' && toolSuccess) {
+          execState.apiConfigured = true;
+          const urlMatch = text.match(/"base_url":\s*"([^"]+)"/);
+          if (urlMatch) execState.apiBaseUrl = urlMatch[1];
+        }
+        if ((toolName === 'scaffold_feature' || toolName === 'write_feature_file') && toolSuccess) {
+          totalFiles++;
+        }
+        if (toolName === 'write_step_definition' && toolSuccess) {
+          totalFiles++;
+        }
+        if (toolName === 'write_page_object' && toolSuccess) {
+          totalFiles++;
+        }
+        if (toolName === 'take_screenshot' && toolSuccess) {
+          totalScreenshots++;
+        }
+      }
+      
+      addAgentMessage(text, toolCalls, 'normal');
+      sessionEntry.outcome = 'success';
+      sessionEntry.tools = toolCalls.map(t => t.name);
+      
+      totalTools += toolCalls.length;
+      memoryEntries++;
+      updateStateCards();
+      updateStats();
+      
+    } else {
+      addAgentMessage(`Error: ${data.error || 'Unknown error'}`, [], 'error');
+      sessionEntry.outcome = 'error';
+    }
+  } catch (err) {
+    removeTyping(typingId);
+    addAgentMessage(`Connection error: ${err.message}. Make sure agent_web_server.py is running.`, [], 'error');
+    sessionEntry.outcome = 'error';
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// UI HELPERS — Messages
+// ════════════════════════════════════════════════════════════
+function addUserMessage(text, timestamp) {
+  const chat = document.getElementById('chatArea');
+  const div  = document.createElement('div');
+  div.className = 'message user';
+  div.innerHTML = `
+    <div class="bubble">
+      <div class="bubble-header">
+        <span>You</span>
+        <span class="bubble-time">${timestamp}</span>
+      </div>
+      ${escHtml(text)}
+    </div>`;
+  chat.appendChild(div);
+  scrollChat();
+}
+
+function addAgentMessage(text, toolCalls, type) {
+  const chat = document.getElementById('chatArea');
+  const div  = document.createElement('div');
+  div.className = 'message agent';
+
+  let toolsHtml = '';
+  if (toolCalls && toolCalls.length > 0) {
+    toolsHtml = toolCalls.map(tc => `
+      <div class="tool-call ${tc.success ? 'success' : 'fail'}">
+        <span class="tool-name">${tc.name}</span>
+        <span class="tool-status">${tc.success ? 'OK' : 'FAIL'}</span>
+      </div>`).join('');
+  }
+
+  let memBadge = '';
+  if (memoryEntries > 0) {
+    memBadge = `<div class="memory-badge">&#9670; ${memoryEntries} memory entries</div>`;
+  }
+
+  const fmtText = formatResponseText(text);
+
+  div.innerHTML = `
+    <div class="bubble">
+      <div class="bubble-header">
+        <span>QA Agent</span>
+        <span class="bubble-time">${new Date().toLocaleTimeString()}</span>
+      </div>
+      ${memBadge}
+      ${toolsHtml}
+      <div style="margin-top:${toolsHtml ? '8px' : '0'}">
+        ${fmtText}
+      </div>
+    </div>`;
+  chat.appendChild(div);
+  scrollChat();
+}
+
+function addTyping() {
+  const chat = document.getElementById('chatArea');
+  const id   = 'typing-' + Date.now();
+  const div  = document.createElement('div');
+  div.className = 'message agent';
+  div.id        = id;
+  div.innerHTML = `
+    <div class="typing">
+      <span></span><span></span><span></span>
+    </div>`;
+  chat.appendChild(div);
+  scrollChat();
+  return id;
+}
+
+function removeTyping(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+// ════════════════════════════════════════════════════════════
+// UI HELPERS — Panels
+// ════════════════════════════════════════════════════════════
+function updateHistoryPanel() {
+  const list = document.getElementById('historyList');
+  if (sessionLog.length === 0) return;
+
+  list.innerHTML = [...sessionLog].reverse().map(s => `
+    <div class="history-item" onclick="reRunPrompt('${escHtml(s.goal)}')">
+      <div class="history-num">Prompt ${s.num} · ${s.timestamp}</div>
+      <div class="history-goal">${escHtml(s.goal)}</div>
+      <div class="history-meta">
+        ${s.outcome === 'success' ? '<span class="meta-tag green">success</span>' : ''}
+        ${s.outcome === 'running' ? '<span class="meta-tag amber">running</span>' : ''}
+        ${s.outcome === 'error' || s.outcome === 'failed' ? '<span class="meta-tag red">failed</span>' : ''}
+        ${s.tools.length > 0 ? `<span class="meta-tag">${s.tools.length} tools</span>` : ''}
+        ${s.files.length > 0 ? `<span class="meta-tag green">${s.files.length} files</span>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function updateFilesPanel() {
+  const list = document.getElementById('filesList');
+  if (allFiles.length === 0) return;
+
+  list.innerHTML = [...allFiles].reverse().map(f => `
+    <div class="file-item">
+      ${escHtml(f.path)}
+      <span class="file-item-time">${f.time}</span>
+    </div>`).join('');
+}
+
+function updateStateCards() {
+  const bCard = document.getElementById('stateBrowser');
+  const bVal  = document.getElementById('stateBrowserVal');
+  if (execState.browserOpen) {
+    bCard.className = 'state-card active';
+    try {
+      const host = new URL(execState.browserUrl).hostname;
+      bVal.textContent = host || 'Open';
+    } catch { bVal.textContent = 'Open'; }
+  } else {
+    bCard.className = 'state-card';
+    bVal.textContent = 'Closed';
+  }
+
+  const aCard = document.getElementById('stateApi');
+  const aVal  = document.getElementById('stateApiVal');
+  if (execState.apiConfigured) {
+    aCard.className = 'state-card active';
+    try {
+      const host = new URL(execState.apiBaseUrl).hostname;
+      aVal.textContent = host || 'Set';
+    } catch { aVal.textContent = 'Set'; }
+  } else {
+    aCard.className = 'state-card';
+    aVal.textContent = 'Not set';
+  }
+
+  const adoCard = document.getElementById('stateAdo');
+  const adoVal  = document.getElementById('stateAdoVal');
+  if (execState.adoConfigured) {
+    adoCard.className = 'state-card active';
+    adoVal.textContent = execState.adoOrg || 'Connected';
+  } else {
+    adoCard.className = 'state-card';
+    adoVal.textContent = 'Not connected';
+  }
+
+  const mCard = document.getElementById('stateMemory');
+  const mVal  = document.getElementById('stateMemoryVal');
+  mVal.textContent = `${memoryEntries} entries`;
+  if (memoryEntries > 0) {
+    mCard.className = 'state-card active';
+  }
+}
+
+function updateStats() {
+  document.getElementById('stat-prompts').textContent     = promptCount;
+  document.getElementById('stat-tools').textContent       = totalTools;
+  document.getElementById('stat-files').textContent       = totalFiles;
+  document.getElementById('stat-screenshots').textContent = totalScreenshots;
+  document.getElementById('stat-pass').textContent        = totalPass;
+  document.getElementById('stat-fail').textContent        = totalFail;
+  document.getElementById('stat-memory').textContent      = memoryEntries;
+
+  const dur = Math.round((Date.now() - sessionStart) / 1000);
+  const h   = Math.floor(dur / 3600);
+  const m   = Math.floor((dur % 3600) / 60);
+  const s   = dur % 60;
+  document.getElementById('stat-duration').textContent =
+    h > 0 ? `${h}h ${m}m ${s}s` :
+    m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel-pane').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(`pane-${name}`).classList.add('active');
+}
+
+// ════════════════════════════════════════════════════════════
+// TEXT FORMATTING
+// ════════════════════════════════════════════════════════════
+function formatResponseText(text) {
+  if (!text) return '';
+  let html = escHtml(text);
+
+  html = html.replace(
+    /(C:\\[^\s,]+\.(feature|cs|json|html|xml|png|trx))/g,
+    '<span class="file-badge">&#128196; $1</span>'
+  );
+
+  html = html.replace(/\bPASS(ED)?\b/g, '<strong style="color:var(--green)">PASS</strong>');
+  html = html.replace(/\bFAIL(ED)?\b/g, '<strong style="color:var(--red)">FAIL</strong>');
+  html = html.replace(/^  [•\-\*] /gm, '<br>&nbsp;&nbsp;• ');
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function scrollChat() {
+  const chat = document.getElementById('chatArea');
+  chat.scrollTop = chat.scrollHeight;
+}
+
+// ════════════════════════════════════════════════════════════
+// CONTROLS
+// ════════════════════════════════════════════════════════════
+function useQuick(el) {
+  const text = el.querySelector('.quick-text').textContent;
+  document.getElementById('promptInput').value = text;
+  document.getElementById('promptInput').focus();
+  autoResize(document.getElementById('promptInput'));
+}
+
+function setPrompt(el) {
+  document.getElementById('promptInput').value = el.textContent;
+  document.getElementById('promptInput').focus();
+}
+
+function reRunPrompt(goal) {
+  document.getElementById('promptInput').value = goal;
+  document.getElementById('promptInput').focus();
+}
+
+async function closeBrowser() {
+  if (!execState.browserOpen) {
+    showToast('Browser is not open', 'error');
+    return;
+  }
+  try {
+    const r = await fetch(`${BRIDGE_URL}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toolName: 'close_browser', arguments: {} })
+    });
+    const result = await r.json();
+    
+    if (result.success) {
+      execState.browserOpen  = false;
+      execState.browserUrl   = '';
+      execState.browserTitle = '';
+      updateStateCards();
+      showToast('Browser closed', 'success');
+    } else {
+      showToast('Failed to close browser', 'error');
+    }
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+function clearSession() {
+  if (!confirm('Start a new session? History will be cleared.')) return;
+  
+  sessionLog        = [];
+  allFiles          = [];
+  promptCount       = 0;
+  totalTools        = 0;
+  totalFiles        = 0;
+  totalScreenshots  = 0;
+  totalPass         = 0;
+  totalFail         = 0;
+  memoryEntries     = 0;
+  sessionStart      = Date.now();
+  Object.assign(execState, {
+    browserOpen: false, browserUrl: '', browserTitle: '',
+    apiConfigured: false, apiBaseUrl: '',
+    adoConfigured: false, adoOrg: '', adoProject: '',
+    reportingStarted: false, filesWritten: [],
+    screenshotsTaken: [], testsRun: [],
+    testsPassed: 0, testsFailed: 0, performanceDone: false
+  });
+
+  document.getElementById('chatArea').innerHTML = `
+    <div class="welcome" id="welcomeScreen">
+      <div class="welcome-icon">&#9654;</div>
+      <h2>QA Agent</h2>
+      <p>New session started. Type a goal or pick a quick action.</p>
+      <div class="welcome-chips">
+        <div class="chip" onclick="setPrompt(this)">Launch browser and navigate to SauceDemo</div>
+        <div class="chip" onclick="setPrompt(this)">Generate test suite</div>
+        <div class="chip" onclick="setPrompt(this)">Run performance test</div>
+      </div>
+    </div>`;
+
+  document.getElementById('historyList').innerHTML =
+    '<div style="font-size:11px;color:var(--text3);font-family:var(--mono);padding:8px 0;">No prompts yet.</div>';
+  document.getElementById('filesList').innerHTML =
+    '<div style="font-size:11px;color:var(--text3);font-family:var(--mono);padding:8px 0;">No files written yet.</div>';
+
+  document.getElementById('promptCount').textContent = 'Prompt 1 ready';
+  updateStateCards();
+  updateStats();
+}
+
+function showToast(msg, type) {
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ════════════════════════════════════════════════════════════
+// INPUT HANDLING
+// ════════════════════════════════════════════════════════════
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('promptInput');
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.ctrlKey) {
+      e.preventDefault();
+      sendPrompt();
+    }
+  });
+
+  input.addEventListener('input', () => autoResize(input));
+
+  setInterval(updateStats, 5000);
+
+  checkHealth();
+  setTimeout(checkHealth, 3000);
+});
+</script>
+
+
+<!-- Creator Watermark -->
+<div class="creator-watermark">Created by Rakshit Saluja</div>
+
+</body>
+</html>
