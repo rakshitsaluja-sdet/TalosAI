@@ -152,7 +152,7 @@ Get-Job | Remove-Job
 ## ?? Quick Checklist
 
 Before starting:
-- [ ] GITHUB_TOKEN environment variable is set
+- [ ] Claude Code CLI installed (`npm install -g @anthropic-ai/claude-code`) and signed in (run `claude` once)
 - [ ] Python 3.x is installed
 - [ ] aiohttp package is installed (`pip install aiohttp`)
 - [ ] Ports 5555 and 8080 are free

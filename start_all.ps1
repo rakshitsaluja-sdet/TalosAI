@@ -22,16 +22,16 @@ Write-Host "Checking environment variables..." -ForegroundColor Yellow
 if ($UseOllama) {
     Write-Host "? Using Ollama (offline mode)" -ForegroundColor Green
 } else {
-    if (-not $env:GITHUB_TOKEN) {
-        Write-Host "? GITHUB_TOKEN not found!" -ForegroundColor Red
-        Write-Host "   Set it with:" -ForegroundColor Yellow
-        Write-Host "   `$env:GITHUB_TOKEN = 'your_token_here'" -ForegroundColor Gray
-        Write-Host "   [System.Environment]::SetEnvironmentVariable('GITHUB_TOKEN', 'your_token', 'User')" -ForegroundColor Gray
+    if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+        Write-Host "? Claude Code CLI not found on PATH!" -ForegroundColor Red
+        Write-Host "   Install it with:" -ForegroundColor Yellow
+        Write-Host "   npm install -g @anthropic-ai/claude-code" -ForegroundColor Gray
+        Write-Host "   Then run 'claude' once from a terminal to sign in." -ForegroundColor Gray
         Write-Host ""
         Write-Host "   Or use Ollama mode: .\start_all.ps1 -UseOllama" -ForegroundColor Yellow
         exit 1
     }
-    Write-Host "? GITHUB_TOKEN configured" -ForegroundColor Green
+    Write-Host "? Claude Code CLI found (using existing sign-in session)" -ForegroundColor Green
 }
 
 # Check if ports are available
@@ -168,7 +168,7 @@ if (Test-Path $agentPath) {
         Write-Host "Starting Agent Runner (Ollama - Offline Mode)..." -ForegroundColor Yellow
         $agentScript = "agent_runner_ollama.py"
     } else {
-        Write-Host "Starting Agent Runner (GitHub Models)..." -ForegroundColor Yellow
+        Write-Host "Starting Agent Runner (Claude Agent SDK)..." -ForegroundColor Yellow
         $agentScript = "agent_runner.py"
     }
     

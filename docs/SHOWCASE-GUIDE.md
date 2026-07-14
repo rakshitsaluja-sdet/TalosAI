@@ -41,7 +41,7 @@ cd ..
 ```
 
 You'll also need **one** of:
-- A `GITHUB_TOKEN` environment variable (for the agent's LLM calls via GitHub Models), **or**
+- The Claude Code CLI installed and signed in (`npm install -g @anthropic-ai/claude-code`, then run `claude` once — no API key needed, it reuses your existing Claude account session), **or**
 - Ollama running locally (pass `-UseOllama` to `start_all.ps1` for a fully offline demo)
 
 ---

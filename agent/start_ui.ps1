@@ -14,6 +14,15 @@ function IsUp($url) {
     }
 }
 
+Write-Host "?? Checking Claude Code CLI..."
+if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+    Write-Host "?? Claude Code CLI not found on PATH."
+    Write-Host "   Install it with: npm install -g @anthropic-ai/claude-code"
+    Write-Host "   Then run 'claude' once from a terminal to sign in."
+    exit 1
+}
+Write-Host "? Claude Code CLI found"
+
 Write-Host "?? Checking MCPBridge..."
 
 if (-not (IsUp $McpHealth)) {

@@ -9,7 +9,7 @@ Write-Host ""
 
 # === Pre-flight Checks ===
 
-Write-Host "[1/5] Checking Python..." -ForegroundColor Yellow
+Write-Host "[1/6] Checking Python..." -ForegroundColor Yellow
 try {
     $pythonVer = python --version 2>&1
     Write-Host "      ? $pythonVer" -ForegroundColor Green
@@ -20,7 +20,18 @@ try {
 }
 
 Write-Host ""
-Write-Host "[2/5] Checking Python dependencies..." -ForegroundColor Yellow
+Write-Host "[2/6] Checking Claude Code CLI..." -ForegroundColor Yellow
+if (Get-Command claude -ErrorAction SilentlyContinue) {
+    Write-Host "      ? Claude Code CLI found" -ForegroundColor Green
+} else {
+    Write-Host "      ? Claude Code CLI not found on PATH!" -ForegroundColor Red
+    Write-Host "      Install it with: npm install -g @anthropic-ai/claude-code" -ForegroundColor Yellow
+    Write-Host "      Then run 'claude' once from a terminal to sign in." -ForegroundColor Yellow
+    exit 1
+}
+
+Write-Host ""
+Write-Host "[3/6] Checking Python dependencies..." -ForegroundColor Yellow
 try {
     python -c "import aiohttp" 2>$null
     if ($LASTEXITCODE -eq 0) {
@@ -36,7 +47,7 @@ try {
 }
 
 Write-Host ""
-Write-Host "[3/5] Checking syntax..." -ForegroundColor Yellow
+Write-Host "[4/6] Checking syntax..." -ForegroundColor Yellow
 Push-Location $PSScriptRoot
 $syntaxCheck = python -m py_compile agent_runner.py 2>&1
 Pop-Location
@@ -50,7 +61,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "[4/5] Checking MCPBridge..." -ForegroundColor Yellow
+Write-Host "[5/6] Checking MCPBridge..." -ForegroundColor Yellow
 try {
     $health = Invoke-WebRequest -Uri "http://localhost:5555/health" -UseBasicParsing -TimeoutSec 2 2>$null
     if ($health.StatusCode -eq 200) {
@@ -70,7 +81,7 @@ try {
 }
 
 Write-Host ""
-Write-Host "[5/5] Checking port 8080..." -ForegroundColor Yellow
+Write-Host "[6/6] Checking port 8080..." -ForegroundColor Yellow
 $portInUse = Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue
 if ($portInUse) {
     Write-Host "      ! Port 8080 is in use" -ForegroundColor Yellow

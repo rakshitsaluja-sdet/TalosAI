@@ -1,14 +1,24 @@
 ﻿"""
-Agent Runner - GitHub Copilot Integration
-Uses GitHub Models API to interact with MCPBridge automation tools
+Agent Runner - Claude Agent SDK Integration
+Uses the Claude Agent SDK (existing Claude Code OAuth session) to interact with MCPBridge automation tools
 """
 import os
 import sys
 import asyncio
 import json
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 import httpx
-from openai import OpenAI
+from claude_agent_sdk import (
+    tool,
+    create_sdk_mcp_server,
+    ClaudeAgentOptions,
+    query,
+    AssistantMessage,
+    TextBlock,
+    ToolUseBlock,
+    ResultMessage,
+)
 from rag_store import RagStore
 from execution_state import ExecutionState
 
@@ -16,9 +26,8 @@ from execution_state import ExecutionState
 # Configuration
 MCPBRIDGE_URL = "http://localhost:5555"
 MCP_SERVER_URL = "http://localhost:8000"
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "z-ai/glm-4.7-flash")
+# Optional override, e.g. "claude-opus-4-8" - leave unset to use the CLI's default model.
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL")
 
 # ================================
 # Tool Capability Registry 
@@ -55,46 +64,6 @@ TOOL_CAPABILITIES = {
     "start_test": ["resource"],
     "generate_report": ["artifact"]
 }
-
-# Pick LLM provider: OpenRouter takes priority if configured, else GitHub Models.
-PROVIDER = None
-DEFAULT_MODEL = None
-USE_GITHUB = False
-
-if OPENROUTER_API_KEY:
-    try:
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=OPENROUTER_API_KEY,
-            default_headers={
-                "HTTP-Referer": "http://localhost:8080",
-                "X-Title": "TalosAI",
-            },
-        )
-        PROVIDER = "openrouter"
-        DEFAULT_MODEL = OPENROUTER_MODEL
-        USE_GITHUB = True  # generic "an LLM client is ready" flag
-        print(f"? OpenRouter client initialized (model: {DEFAULT_MODEL})")
-    except Exception as e:
-        print(f"??  Failed to initialize OpenRouter: {e}")
-
-if not PROVIDER:
-    if not GITHUB_TOKEN:
-        print("??  WARNING: Neither OPENROUTER_API_KEY nor GITHUB_TOKEN is set!")
-        print("   Set one with: [System.Environment]::SetEnvironmentVariable('OPENROUTER_API_KEY', 'your_key', 'User')")
-        print("   Falling back to offline mode will be attempted...")
-    else:
-        try:
-            client = OpenAI(
-                base_url="https://models.inference.ai.azure.com",
-                api_key=GITHUB_TOKEN,
-            )
-            PROVIDER = "github"
-            DEFAULT_MODEL = "gpt-4o"
-            USE_GITHUB = True
-            print("? GitHub Models client initialized")
-        except Exception as e:
-            print(f"??  Failed to initialize GitHub Models: {e}")
 
 # === Agent Runtime Memory ===
 RAG_STORE = RagStore("../.agent_runtime/vector_store")
@@ -1066,6 +1035,31 @@ TOOL_SCHEMAS = [
 }
 ]
 
+# ================================
+# Claude Agent SDK MCP tool bridge
+# ================================
+# Every entry in TOOL_SCHEMAS already fully describes a tool (name, description,
+# JSON-schema parameters) and execute_tool() already knows how to run any of them
+# against MCPBridge generically - so wrap each schema once instead of hand-writing
+# ~40 @tool-decorated functions.
+def _make_bridge_tool(schema: dict):
+    fn = schema["function"]
+    tool_name = fn["name"]
+    input_schema = fn.get("parameters") or {"type": "object", "properties": {}}
+
+    @tool(tool_name, fn.get("description", ""), input_schema)
+    async def handler(args: dict, _tool_name: str = tool_name) -> Dict[str, Any]:
+        result = await dispatch_tool_call(_tool_name, args)
+        return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+    return handler
+
+
+TALOSAI_MCP_SERVER = create_sdk_mcp_server(
+    name="talosai",
+    tools=[_make_bridge_tool(schema) for schema in TOOL_SCHEMAS],
+)
+
 def get_relevant_tools(user_request: str) -> list:
     """
     Return ONLY tool schemas relevant to the user request.
@@ -1346,17 +1340,118 @@ def should_execute_tool(tool_name: str, arguments: dict, is_user_request: bool =
 
     return True
 
+
+async def dispatch_tool_call(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Middleware that used to live inline in the manual tool-call loop:
+    CI headless enforcement, smart reuse, destructive-action guard, session
+    auto-recovery, and EXEC_STATE bookkeeping - now the single place every
+    Claude Agent SDK tool call passes through before hitting MCPBridge.
+    """
+    # ================================ CI Headless Enforcement ================================
+    if os.getenv("CI") == "true" and tool_name == "launch_browser":
+        arguments["headless"] = True
+
+    # ================================ Smart Reuse Decision ================================
+    if not should_execute_tool(tool_name, arguments):
+        print(f"ℹ️  Smart reuse: skipping {tool_name} (already executed previously)")
+        print(f"   Current state: {EXEC_STATE.state}")
+        return {"success": True, "result": "Skipped due to smart reuse"}
+
+    # ================================ Destructive action guard ================================
+    if arguments.get("overwrite") is True:
+        if os.getenv("CI") == "true":
+            print(f"❌ Blocking overwrite in CI mode for tool: {tool_name}")
+            return {"success": False, "error": "Overwrite blocked in CI mode"}
+
+        confirmation = input(
+            f"⚠️ Tool '{tool_name}' is about to overwrite existing files. Continue? (yes/no): "
+        ).strip().lower()
+
+        if confirmation != "yes":
+            print("✅ Overwrite cancelled by user.")
+            return {"success": False, "error": "Overwrite cancelled by user"}
+
+    # Execute via MCPBridge
+    print(f"🔧 Executing {tool_name} with arguments: {arguments}")
+    result = await execute_tool(tool_name, arguments)
+    print(f"📊 Result from {tool_name}: {result}")
+
+    # ================================ Handle Session Errors - Auto-Recover ================================
+    if not result.get("success"):
+        error_msg = result.get("error", "")
+
+        if tool_name == "navigate" and "invalid session" in error_msg.lower():
+            print(f"⚠️  Invalid browser session detected. Relaunching browser...")
+
+            relaunch_result = await execute_tool("launch_browser", {"browser": "chrome", "headless": False})
+
+            if relaunch_result.get("success"):
+                print(f"✅ Browser relaunched successfully")
+                EXEC_STATE.set("browser_open", True)
+
+                print(f"🔄 Retrying navigation to {arguments.get('url')}...")
+                result = await execute_tool(tool_name, arguments)
+                print(f"📊 Retry result: {result}")
+            else:
+                print(f"❌ Failed to relaunch browser: {relaunch_result.get('error')}")
+
+    # ================================ Update execution state from tool calls ================================
+    if tool_name == "launch_browser":
+        EXEC_STATE.set("browser_open", True)
+
+    elif tool_name == "navigate":
+        EXEC_STATE.set("current_url", arguments.get("url"))
+
+    elif tool_name == "close_browser":
+        EXEC_STATE.set("browser_open", False)
+        EXEC_STATE.set("current_url", None)
+
+    elif tool_name == "configure_api":
+        EXEC_STATE.set("api_configured", True)
+        EXEC_STATE.set("api_base_url", arguments.get("base_url"))
+
+    elif tool_name == "configure_azure_devops":
+        EXEC_STATE.set("ado_configured", True)
+        EXEC_STATE.set("ado_org", arguments.get("organization"))
+        EXEC_STATE.set("ado_project", arguments.get("project"))
+
+    elif tool_name == "configure_performance_test":
+        EXEC_STATE.set("performance_configured", True)
+        EXEC_STATE.set("perf_session_name", arguments.get("session_name"))
+        EXEC_STATE.set("perf_base_url", arguments.get("base_url"))
+
+    # =============================== Track created / modified artifacts ================================
+    if tool_name == "write_feature_file":
+        EXEC_STATE.set("last_feature_file", arguments.get("file_name"))
+
+    elif tool_name == "write_step_definition":
+        EXEC_STATE.set("last_step_def", arguments.get("file_name"))
+
+    elif tool_name == "write_page_object":
+        EXEC_STATE.set("last_page_object", arguments.get("file_name"))
+
+    elif tool_name == "append_to_step_definition":
+        EXEC_STATE.set("last_step_def_modified", arguments.get("file_path"))
+
+    elif tool_name == "scaffold_feature":
+        EXEC_STATE.set("last_feature_file", f"{arguments.get('feature_name')}.feature")
+        EXEC_STATE.set("last_step_def", f"{arguments.get('feature_name')}Steps.cs")
+        EXEC_STATE.set("last_page_object", f"{arguments.get('feature_name')}Page.cs")
+
+    return result
+
+
 async def run_agent_github(user_request: str, model: str = None) -> Optional[str]:
-    """Run agent using whichever LLM provider is configured (OpenRouter or GitHub Models)"""
-    if model is None:
-        model = DEFAULT_MODEL
+    """Run agent using the Claude Agent SDK (reuses the existing Claude Code OAuth session)"""
+    resolved_model = model or CLAUDE_MODEL
 
     print(f"\n{'='*60}")
-    print(f"🤖 Agent Request ({PROVIDER} - {model})")
+    print(f"🤖 Agent Request (Claude Agent SDK{f' - {resolved_model}' if resolved_model else ''})")
     print(f"{'='*60}")
     print(f"User: {user_request}")
     print(f"{'='*60}\n")
-    
+
     # ================================
     # Vector RAG: Retrieve prior semantic context
     # ================================
@@ -1369,10 +1464,7 @@ async def run_agent_github(user_request: str, model: str = None) -> Optional[str
             + "\n".join(doc for group in rag_results["documents"] for doc in group)
             + "\n==========================================================\n"
         )
-    messages = [
-        {
-            "role": "system",
-            "content": f"""You are a Senior QA Automation Architect for the TalosAI project.
+    system_prompt = f"""You are a Senior QA Automation Architect for the TalosAI project.
 Your framework uses C# .NET 8, SpecFlow/ReqNroll, Selenium WebDriver and RestSharp.
 You have access to a comprehensive MCP tool suite covering every aspect of QA automation.
 
@@ -1779,257 +1871,86 @@ GOLDEN RULES — never break these
   {semantic_context}
 
   """
-        },
-        {
-            "role": "user",
-            "content": user_request
-        }
-    ]
-    
+
     if os.getenv("CI") == "true":
-        max_iterations = 8
-        temperature = 0.0
+        max_turns = 8
     else:
-        max_iterations = 25
-        temperature = 0.7    
+        max_turns = 25
 
-    iteration = 0
-    
-    while iteration < max_iterations:
-        iteration += 1
-        print(f"\n{'?'*60}")
-        print(f"Iteration {iteration}/{max_iterations}")
-        print(f"{'?'*60}")
-        
-        try:
-            # Guard: trim message history if it risks hitting token limits
-            # Keep system prompt (index 0) + user message (index 1) + last 6 messages
-            if len(messages) > 9:
-                messages = messages[:2] + messages[-6:]
+    allowed_tool_names = [
+        f"mcp__talosai__{schema['function']['name']}"
+        for schema in get_relevant_tools(user_request)
+    ]
 
-            # Force tool usage on first iteration to prevent hallucination
-            tool_choice_setting = "required" if iteration == 1 else "auto"
+    options = ClaudeAgentOptions(
+        system_prompt=system_prompt,
+        mcp_servers={"talosai": TALOSAI_MCP_SERVER},
+        allowed_tools=allowed_tool_names,
+        # This runs unattended (e.g. behind the web UI) - there's no human present to
+        # click "allow" on a permission prompt, so tool access is gated by
+        # allowed_tools/get_relevant_tools instead of interactive approval.
+        permission_mode="bypassPermissions",
+        max_turns=max_turns,
+        cwd=str(Path(__file__).parent),
+        model=resolved_model,
+    )
 
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=get_relevant_tools(user_request), # ← was TOOL_SCHEMAS
-                tool_choice=tool_choice_setting,
-                max_tokens=16000,
-                temperature=temperature
-            )
-        except Exception as e:
-            error_msg = str(e)
-            print(f"\n? AI API Error: {error_msg}")
-            
-            token_var = "OPENROUTER_API_KEY" if PROVIDER == "openrouter" else "GITHUB_TOKEN"
-            if "401" in error_msg or "403" in error_msg:
-                print(f"\n??  Authentication failed. Please check your {token_var}.")
-            elif "restricted" in error_msg.lower() or "blocked" in error_msg.lower():
-                print(f"\n??  {PROVIDER} endpoint may be blocked by your network.")
-                print("   Consider using Ollama (offline mode) instead.")
-            
-            return None
-        
-        choice = response.choices[0]
-        finish_reason = choice.finish_reason
-        message = choice.message
-        
-        # Display assistant's thinking
-        if message.content:
-            print(f"\n?? Assistant: {message.content}")
-        
-        # Handle tool calls
-        if finish_reason == "tool_calls" and message.tool_calls:
-            print(f"\n🛠️  AI wants to use {len(message.tool_calls)} tool(s)")
-            
-            # List which tools will be called
-            for tc in message.tool_calls:
-                print(f"   → {tc.function.name}")
-            
-            # Add assistant message
-            messages.append({
-                "role": "assistant",
-                "content": message.content,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    }
-                    for tc in message.tool_calls
-                ]
-            })
-            
-            # Execute each tool
-            for tool_call in message.tool_calls:
-                tool_name = tool_call.function.name
-                try:
-                    arguments = json.loads(tool_call.function.arguments)
-                except json.JSONDecodeError:
-                    arguments = {}
+    final_message = None
+    saw_tool_call = False
 
-                # ================================ Phase 9.2: CI Headless Enforcement ================================
-                if os.getenv("CI") == "true":
-                    if tool_name == "launch_browser":
-                        arguments["headless"] = True
-                
-                # ================================ Smart Reuse Decision (Phase 6) ================================
-                # On first iteration, always execute (user explicitly requested it)
-                is_first_iteration = (iteration == 1)
-                
-                if not should_execute_tool(tool_name, arguments, is_user_request=is_first_iteration):
-                    print(f"ℹ️  Smart reuse: skipping {tool_name} (already executed in previous iteration)")
-                    print(f"   Current state: {EXEC_STATE.state}")
-                    # Still need to send a response for the tool call
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps({"success": True, "result": "Skipped due to smart reuse"})
-                    })
-                    continue
+    try:
+        async for message in query(prompt=user_request, options=options):
+            if isinstance(message, AssistantMessage):
+                if message.error:
+                    print(f"\n❌ Claude Agent SDK Error: {message.error}")
+                    if message.error == "authentication_failed":
+                        print("   Run `claude` once from a terminal to sign in, then try again.")
+                    return None
 
-                # ================================ Phase 9: Destructive action guard ================================
-                if arguments.get("overwrite") is True:
-                    if os.getenv("CI") == "true":
-                        print(f"❌ Blocking overwrite in CI mode for tool: {tool_name}")
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps({"success": False, "error": "Overwrite blocked in CI mode"})
-                        })
-                        continue
+                for block in message.content:
+                    if isinstance(block, TextBlock) and block.text:
+                        print(f"\n🤖 Assistant: {block.text}")
+                        final_message = block.text
+                    elif isinstance(block, ToolUseBlock):
+                        saw_tool_call = True
+                        print(f"\n🛠️  AI wants to use tool: {block.name}")
 
-                    confirmation = input(
-                        f"⚠️ Tool '{tool_name}' is about to overwrite existing files. Continue? (yes/no): "
-                        ).strip().lower()
+            elif isinstance(message, ResultMessage):
+                if message.is_error:
+                    print(f"\n❌ Agent error: {message.result}")
+                    return None
+                if message.result:
+                    final_message = message.result
+    except Exception as e:
+        print(f"\n❌ Claude Agent SDK Error: {e}")
+        print("   Make sure the `claude` CLI is installed and you're signed in (run `claude` once from a terminal).")
+        return None
 
-                    if confirmation != "yes":
-                        print("✅ Overwrite cancelled by user.")
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": json.dumps({"success": False, "error": "Overwrite cancelled by user"})
-                        })
-                        continue
+    if not saw_tool_call:
+        print(f"\n⚠️  WARNING: Agent completed without calling any tools!")
+        print(f"   This usually means the AI is hallucinating results.")
+        print(f"   The task may not have actually been executed.\n")
 
-                # Execute via MCPBridge
-                print(f"🔧 Executing {tool_name} with arguments: {arguments}")
-                result = await execute_tool(tool_name, arguments)
-                print(f"📊 Result from {tool_name}: {result}")
+    if final_message:
+        print(f"\n{'='*60}")
+        print(f"✅ Agent Complete")
+        print(f"{'='*60}")
+        print(f"{final_message}")
+        print(f"{'='*60}\n")
+        # ================================
+        # Persist semantic memory for next prompt
+        # ================================
+        RAG_STORE.add(
+            text=f"USER REQUEST:\n{user_request}\n\nAGENT RESULT:\n{final_message}",
+            metadata={
+                "source": "agent_completion",
+                "browser_open": EXEC_STATE.get("browser_open"),
+                "current_url": EXEC_STATE.get("current_url")
+            }
+        )
+        return final_message
 
-                # ================================ Handle Session Errors - Auto-Recover ================================
-                if not result.get("success"):
-                    error_msg = result.get("error", "")
-                    
-                    # If navigate failed due to invalid session, relaunch browser and retry
-                    if tool_name == "navigate" and "invalid session" in error_msg.lower():
-                        print(f"⚠️  Invalid browser session detected. Relaunching browser...")
-                        
-                        # Relaunch browser
-                        relaunch_result = await execute_tool("launch_browser", {"browser": "chrome", "headless": False})
-                        
-                        if relaunch_result.get("success"):
-                            print(f"✅ Browser relaunched successfully")
-                            EXEC_STATE.set("browser_open", True)
-                            
-                            # Retry navigation
-                            print(f"🔄 Retrying navigation to {arguments.get('url')}...")
-                            result = await execute_tool(tool_name, arguments)
-                            print(f"📊 Retry result: {result}")
-                        else:
-                            print(f"❌ Failed to relaunch browser: {relaunch_result.get('error')}")
-
-                # ================================ Update execution state from tool calls ================================
-                if tool_name == "launch_browser":
-                    EXEC_STATE.set("browser_open", True)
-
-                elif tool_name == "navigate":
-                    EXEC_STATE.set("current_url", arguments.get("url"))
-
-                elif tool_name == "close_browser":
-                    EXEC_STATE.set("browser_open", False)
-                    EXEC_STATE.set("current_url", None)
-
-                elif tool_name == "configure_api":
-                    # API client is now active — api_get/post/put/delete tools
-                    # will be injected on every subsequent prompt automatically
-                    EXEC_STATE.set("api_configured", True)
-                    EXEC_STATE.set("api_base_url", arguments.get("base_url"))
-
-                elif tool_name == "configure_azure_devops":
-                    # ADO connection is live — story/query tools injected automatically
-                    EXEC_STATE.set("ado_configured", True)
-                    EXEC_STATE.set("ado_org", arguments.get("organization"))
-                    EXEC_STATE.set("ado_project", arguments.get("project"))
-                
-                elif tool_name == "configure_performance_test":
-                    # Performance session is active — all perf tools injected automatically
-                    EXEC_STATE.set("performance_configured", True)
-                    EXEC_STATE.set("perf_session_name", arguments.get("session_name"))
-                    EXEC_STATE.set("perf_base_url", arguments.get("base_url"))
-                
-                # =============================== Phase 7: Track created / modified artifacts  ================================
-                if tool_name == "write_feature_file":
-                    EXEC_STATE.set("last_feature_file", arguments.get("file_name"))
-
-                elif tool_name == "write_step_definition":
-                    EXEC_STATE.set("last_step_def", arguments.get("file_name"))
-
-                elif tool_name == "write_page_object":
-                    EXEC_STATE.set("last_page_object", arguments.get("file_name"))
-
-                elif tool_name == "append_to_step_definition":
-                    EXEC_STATE.set("last_step_def_modified", arguments.get("file_path"))
-
-                elif tool_name == "scaffold_feature":
-                    EXEC_STATE.set("last_feature_file", f"{arguments.get('feature_name')}.feature")
-                    EXEC_STATE.set("last_step_def", f"{arguments.get('feature_name')}Steps.cs")
-                    EXEC_STATE.set("last_page_object", f"{arguments.get('feature_name')}Page.cs")
-                
-                # Add tool result to conversation
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": json.dumps(result)
-                })
-        
-        # Agent finished
-        elif finish_reason == "stop":
-            # Warn if agent finished without calling any tools on first iteration
-            if iteration == 1:
-                print(f"\n⚠️  WARNING: Agent completed on first iteration without calling any tools!")
-                print(f"   This usually means the AI is hallucinating results.")
-                print(f"   The task was NOT actually executed.\n")
-            
-            final_message = message.content
-            print(f"\n{'='*60}")
-            print(f"✅ Agent Complete")
-            print(f"{'='*60}")
-            print(f"{final_message}")
-            print(f"{'='*60}\n")
-            # ================================
-            # Persist semantic memory for next prompt
-            # ================================
-            RAG_STORE.add(
-                text=f"USER REQUEST:\n{user_request}\n\nAGENT RESULT:\n{final_message}",
-                metadata={
-                    "source": "agent_completion",
-                    "browser_open": EXEC_STATE.get("browser_open"),
-                    "current_url": EXEC_STATE.get("current_url")
-                }
-            )
-            return final_message
-        
-        # Unexpected finish
-        else:
-            print(f"\n⚠️  Unexpected finish reason: {finish_reason}")
-            break
-    
-    print(f"\n??  Max iterations ({max_iterations}) reached")
+    print(f"\n⚠️  Max turns ({max_turns}) reached without a final result")
     return None
 
 async def main():
@@ -2053,12 +1974,14 @@ async def main():
         print("   Start MCPBridge first: cd MCPBridge && dotnet run")
         return 1
     
-    if not USE_GITHUB:
-        print("\n??  No LLM provider available")
-        print("   Please set OPENROUTER_API_KEY or GITHUB_TOKEN")
+    import shutil
+    if not shutil.which("claude"):
+        print("\n⚠️  Claude Code CLI not found on PATH")
+        print("   Install it with: npm install -g @anthropic-ai/claude-code")
+        print("   Then run `claude` once to sign in.")
         return 1
 
-    print(f"? Using {PROVIDER} ({DEFAULT_MODEL})")
+    print(f"✅ Using Claude Agent SDK{f' ({CLAUDE_MODEL})' if CLAUDE_MODEL else ''}")
     print("="*60)
      # Example automation tasks
     #examples = [
