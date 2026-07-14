@@ -17,6 +17,8 @@ from execution_state import ExecutionState
 MCPBRIDGE_URL = "http://localhost:5555"
 MCP_SERVER_URL = "http://localhost:8000"
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "z-ai/glm-4.7-flash")
 
 # ================================
 # Tool Capability Registry 
@@ -54,26 +56,45 @@ TOOL_CAPABILITIES = {
     "generate_report": ["artifact"]
 }
 
-# Check if GitHub token is available
-if not GITHUB_TOKEN:
-    print("??  WARNING: GITHUB_TOKEN environment variable not set!")
-    print("   Set it with: [System.Environment]::SetEnvironmentVariable('GITHUB_TOKEN', 'your_token', 'User')")
-    print("   Falling back to offline mode will be attempted...")
-    USE_GITHUB = False
-else:
-    USE_GITHUB = True
+# Pick LLM provider: OpenRouter takes priority if configured, else GitHub Models.
+PROVIDER = None
+DEFAULT_MODEL = None
+USE_GITHUB = False
 
-# Initialize OpenAI client for GitHub Models
-if USE_GITHUB:
+if OPENROUTER_API_KEY:
     try:
         client = OpenAI(
-            base_url="https://models.inference.ai.azure.com",
-            api_key=GITHUB_TOKEN,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_API_KEY,
+            default_headers={
+                "HTTP-Referer": "http://localhost:8080",
+                "X-Title": "TalosAI",
+            },
         )
-        print("? GitHub Models client initialized")
+        PROVIDER = "openrouter"
+        DEFAULT_MODEL = OPENROUTER_MODEL
+        USE_GITHUB = True  # generic "an LLM client is ready" flag
+        print(f"? OpenRouter client initialized (model: {DEFAULT_MODEL})")
     except Exception as e:
-        print(f"??  Failed to initialize GitHub Models: {e}")
-        USE_GITHUB = False
+        print(f"??  Failed to initialize OpenRouter: {e}")
+
+if not PROVIDER:
+    if not GITHUB_TOKEN:
+        print("??  WARNING: Neither OPENROUTER_API_KEY nor GITHUB_TOKEN is set!")
+        print("   Set one with: [System.Environment]::SetEnvironmentVariable('OPENROUTER_API_KEY', 'your_key', 'User')")
+        print("   Falling back to offline mode will be attempted...")
+    else:
+        try:
+            client = OpenAI(
+                base_url="https://models.inference.ai.azure.com",
+                api_key=GITHUB_TOKEN,
+            )
+            PROVIDER = "github"
+            DEFAULT_MODEL = "gpt-4o"
+            USE_GITHUB = True
+            print("? GitHub Models client initialized")
+        except Exception as e:
+            print(f"??  Failed to initialize GitHub Models: {e}")
 
 # === Agent Runtime Memory ===
 RAG_STORE = RagStore("../.agent_runtime/vector_store")
@@ -1325,11 +1346,13 @@ def should_execute_tool(tool_name: str, arguments: dict, is_user_request: bool =
 
     return True
 
-async def run_agent_github(user_request: str, model: str = "gpt-4o") -> Optional[str]:
-    """Run agent using GitHub Models API (gpt-4o has 128k context vs gpt-4o-mini's 8k)"""
-    
+async def run_agent_github(user_request: str, model: str = None) -> Optional[str]:
+    """Run agent using whichever LLM provider is configured (OpenRouter or GitHub Models)"""
+    if model is None:
+        model = DEFAULT_MODEL
+
     print(f"\n{'='*60}")
-    print(f"🤖 Agent Request (GitHub Models - {model})")
+    print(f"🤖 Agent Request ({PROVIDER} - {model})")
     print(f"{'='*60}")
     print(f"User: {user_request}")
     print(f"{'='*60}\n")
@@ -1799,10 +1822,11 @@ GOLDEN RULES — never break these
             error_msg = str(e)
             print(f"\n? AI API Error: {error_msg}")
             
+            token_var = "OPENROUTER_API_KEY" if PROVIDER == "openrouter" else "GITHUB_TOKEN"
             if "401" in error_msg or "403" in error_msg:
-                print("\n??  Authentication failed. Please check your GITHUB_TOKEN.")
+                print(f"\n??  Authentication failed. Please check your {token_var}.")
             elif "restricted" in error_msg.lower() or "blocked" in error_msg.lower():
-                print("\n??  GitHub Models endpoint may be blocked by your network.")
+                print(f"\n??  {PROVIDER} endpoint may be blocked by your network.")
                 print("   Consider using Ollama (offline mode) instead.")
             
             return None
@@ -2030,11 +2054,11 @@ async def main():
         return 1
     
     if not USE_GITHUB:
-        print("\n??  GitHub Models not available")
-        print("   Please set GITHUB_TOKEN or use Ollama (agent_runner_ollama.py)")
+        print("\n??  No LLM provider available")
+        print("   Please set OPENROUTER_API_KEY or GITHUB_TOKEN")
         return 1
-    
-    print(f"? Using GitHub Models API")
+
+    print(f"? Using {PROVIDER} ({DEFAULT_MODEL})")
     print("="*60)
      # Example automation tasks
     #examples = [
